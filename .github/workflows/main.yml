@@ -1,112 +1,94 @@
 name: Token Refresh
-
 on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
-
 jobs:
   refresh:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
-      
       - name: Install
         run: pip install aiohttp requests
-      
       - name: Refresh tokens
         run: |
           python -c "
-      import asyncio
-      import aiohttp
-      import json
-      import os
-      import logging
-      from datetime import datetime
-      
-      logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-      logger = logging.getLogger(__name__)
-      
-      async def get_token(s, uid, pwd):
-          try:
-              await asyncio.sleep(1)
-              async with s.get('https://jwt-birds.vercel.app/token', params={'uid': uid, 'password': pwd}, timeout=10) as r:
-                  if r.status == 200:
-                      d = await r.json()
-                      t = d.get('token')
-                      if t:
-                          logger.info(f'✅ {uid}')
-                          return {'uid': str(uid), 'token': t, 'region': 'BD'}
-                  elif r.status == 429:
-                      logger.warning(f'⚠️ {uid} - Rate limit, retrying...')
-                      await asyncio.sleep(3)
-                      async with s.get('https://jwt-birds.vercel.app/token', params={'uid': uid, 'password': pwd}, timeout=10) as r2:
-                          if r2.status == 200:
-                              d = await r2.json()
-                              t = d.get('token')
-                              if t:
-                                  logger.info(f'✅ {uid} (retry)')
-                                  return {'uid': str(uid), 'token': t, 'region': 'BD'}
-                  else:
-                      logger.error(f'❌ {uid} - HTTP {r.status}')
-          except Exception as e:
-              logger.error(f'❌ {uid}: {e}')
-          return None
-      
-      async def main():
-          logger.info('🔄 Starting token refresh')
-          
-          if not os.path.exists('account_bd.json'):
-              logger.error('❌ account_bd.json not found!')
+          import asyncio
+          import aiohttp
+          import json
+          import os
+          import logging
+          from datetime import datetime
+          logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+          logger = logging.getLogger(__name__)
+          async def get_token(s, uid, pwd):
+              try:
+                  await asyncio.sleep(1)
+                  async with s.get('https://jwt-birds.vercel.app/token', params={'uid': uid, 'password': pwd}, timeout=10) as r:
+                      if r.status == 200:
+                          d = await r.json()
+                          t = d.get('token')
+                          if t:
+                              logger.info(f'✅ {uid}')
+                              return {'uid': str(uid), 'token': t, 'region': 'BD'}
+                      elif r.status == 429:
+                          logger.warning(f'⚠️ {uid} - Rate limit, retrying...')
+                          await asyncio.sleep(3)
+                          async with s.get('https://jwt-birds.vercel.app/token', params={'uid': uid, 'password': pwd}, timeout=10) as r2:
+                              if r2.status == 200:
+                                  d = await r2.json()
+                                  t = d.get('token')
+                                  if t:
+                                      logger.info(f'✅ {uid} (retry)')
+                                      return {'uid': str(uid), 'token': t, 'region': 'BD'}
+                      else:
+                          logger.error(f'❌ {uid} - HTTP {r.status}')
+              except Exception as e:
+                  logger.error(f'❌ {uid}: {e}')
+              return None
+          async def main():
+              logger.info('🔄 Starting token refresh')
+              if not os.path.exists('account_bd.json'):
+                  logger.error('❌ account_bd.json not found!')
+                  return False
+              with open('account_bd.json') as f:
+                  accounts = json.load(f)
+              logger.info(f'📋 Loaded {len(accounts)} accounts')
+              if not accounts:
+                  logger.error('❌ No accounts found!')
+                  return False
+              tokens = []
+              async with aiohttp.ClientSession() as s:
+                  for acc in accounts:
+                      uid = acc.get('uid')
+                      password = acc.get('password')
+                      if uid and password:
+                          r = await get_token(s, uid, password)
+                          if r:
+                              tokens.append(r)
+              if tokens:
+                  with open('tokens_bd.json', 'w') as f:
+                      json.dump(tokens, f, indent=2)
+                  logger.info(f'✅ Saved {len(tokens)} tokens to tokens_bd.json')
+                  return True
+              logger.error('❌ No tokens fetched!')
               return False
-          
-          with open('account_bd.json') as f:
-              accounts = json.load(f)
-          
-          logger.info(f'📋 Loaded {len(accounts)} accounts')
-          
-          if not accounts:
-              logger.error('❌ No accounts found!')
-              return False
-          
-          tokens = []
-          async with aiohttp.ClientSession() as s:
-              for acc in accounts:
-                  uid = acc.get('uid')
-                  password = acc.get('password')
-                  if uid and password:
-                      r = await get_token(s, uid, password)
-                      if r:
-                          tokens.append(r)
-          
-          if tokens:
-              with open('tokens_bd.json', 'w') as f:
-                  json.dump(tokens, f, indent=2)
-              logger.info(f'✅ Saved {len(tokens)} tokens to tokens_bd.json')
-              return True
-          
-          logger.error('❌ No tokens fetched!')
-          return False
-      
-      if __name__ == '__main__':
-          exit(0 if asyncio.run(main()) else 1)
-      "
-      
+          if __name__ == '__main__':
+              exit(0 if asyncio.run(main()) else 1)
+          "
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config.user.email "github-actions[bot]@users.noreply.github.com"
           git add tokens_bd.json
           git commit -m "Auto-update tokens [skip ci]" || echo "No changes"
           git push
